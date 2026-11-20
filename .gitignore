@@ -1,0 +1,33 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode
+build/
+DerivedData/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# 依赖管理（本项目无依赖，保留以防后续引入）
+Pods/
+Carthage/Build/
+.swiftpm/
+Package.resolved
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
+
+# 其它
+*.log
