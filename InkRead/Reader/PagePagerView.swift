@@ -5,8 +5,9 @@
 //  职责：
 //    · 定义分页数据模型 PagerPage / PagerModel 与翻页方向枚举 PageTurnDirection
 //    · 定义 PagePagerDelegate 协议，把翻页、点击中央、到达边界三类结果回传给上层
-//    · PageCanvasView 负责用 CoreText 把 NSAttributedString 绘制为静态一页
+//    · PageCanvasView 负责用 CoreText 把 NSAttributedString 绘制为静态一页（始终透明，底色由容器提供）
 //    · PagePagerView 管理「当前页 + 进场页」两个 PageCanvasView，实现拖拽跟随、回弹与翻页动画
+//    · 正文底色由容器 backgroundColor 统一设置，页视图保持透明，确保切换主题时背景实时刷新
 //  上层调用者：ReaderView.swift 中的 PagerContainer（UIViewRepresentable）
 //             —— makeUIView / updateUIView 创建并调用 apply(_:)，Coordinator 实现本文件协议
 //  下层依赖： PagerPage / PagerModel 数据来自 ReaderViewModel.pagerModel；
@@ -223,7 +224,10 @@ final class PagePagerView: UIView, UIGestureRecognizerDelegate { // 翻页容器
         appliedRevision = newModel.revision // 记录已应用版本
         model = newModel // 保存模型，供后续手势判定使用
 
-        backgroundColor = newModel.theme.background.uiColor // 用主题背景色填充容器
+        // 正文底色由容器 backgroundColor 统一提供；currentView / incomingView 必须保持透明，
+        // 否则翻页时进场页转正为 currentView 后残留的不透明背景，会在切换主题时盖住容器的新背景色。
+        backgroundColor = newModel.theme.background.uiColor // 容器背景 = 主题背景（顶栏/底栏之外的正文区底色）
+        currentView.backgroundColor = .clear // 兜底：确保当前页透明，透出容器背景
         currentView.pageInsets = newModel.insets // 同步文字内边距（会触发页面重绘）
         currentView.setContent(newModel.current?.text, key: newModel.current?.key ?? "") // 把当前页文字与标识交给画布
 
@@ -496,7 +500,7 @@ final class PagePagerView: UIView, UIGestureRecognizerDelegate { // 翻页容器
         view.transform = .identity // 清除可能残留的位移
         view.frame = bounds // 铺满容器
         view.pageInsets = model.insets // 与新模型保持相同文字内边距
-        view.backgroundColor = model.theme.background.uiColor // 与主题背景保持一致，避免翻页时露出色差
+        view.backgroundColor = .clear // 进场页保持透明：底色由容器 backgroundColor 提供，翻页滑入时露出的容器背景与主题同色，不会出现色差
         view.setContent(page.text, key: page.key) // 填充该页富文本
         if view.superview == nil { addSubview(view) } // 仅首次加入层级，避免重复添加
         incomingView = view // 记录进场页引用

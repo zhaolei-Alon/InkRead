@@ -93,7 +93,8 @@ InkRead/
 ├── README.md
 ├── LICENSE
 ├── docs/
-│   └── 项目结构说明.md                逐文件职责、分层依赖、核心调用链
+│   ├── 项目结构说明.md                逐文件职责、分层依赖、核心调用链
+│   └── CHANGELOG.md                   版本更新日志
 └── InkRead/                          源码根
     ├── InkReadApp.swift              入口：创建并注入三个全局 Store
     ├── Assets.xcassets/              图标、强调色、启动背景
@@ -135,6 +136,9 @@ InkRead/
 
 ### 翻页
 `PageCanvasView` 把当前页与下一页各自绘制进独立 `CALayer`，`PagePagerView` 只做 transform 动画。手势区域按屏宽比例划分：左翻 28% / 右侧 28% / 上一页 22% / 下一页 18%；拖动超过 8pt 锁定轴向，避免误触。
+
+### 主题与背景
+正文底色由两层叠加：SwiftUI 侧 `ReaderView` 底层的 `theme.background.color`，与 UIKit 侧 `PagePagerView.backgroundColor`（在 `apply(_:)` 中同步）。`PageCanvasView` 始终保持透明（`isOpaque = false`、`backgroundColor = .clear`），仅用 CoreText 绘制文字——页视图一旦带不透明背景，翻页转正后会残留旧色，导致切换主题时正文背景不刷新。详见 [docs/项目结构说明.md](docs/项目结构说明.md)。
 
 ### EPUB
 `ZipReader` 自行解析 EOCD 与中央目录，支持 stored / deflate（zlib raw inflate），拒绝 Zip64。`EPUBImporter` 依次解析 `container.xml`、OPF 清单、spine 顺序，再按 XML 名称空间提取章节文本，并以 OPF 所在目录为基准解析相对路径。
