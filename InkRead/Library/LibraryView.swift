@@ -34,11 +34,17 @@ struct LibraryView: View { // 声明书架首页视图，遵循 View 协议
             .max { ($0.lastOpenedAt ?? .distantPast) < ($1.lastOpenedAt ?? .distantPast) } // 取最后打开时间最晚的一本
     } // 结束 continueBook 计算属性
 
-    /// 书架网格的列定义。
-    /// - Returns: 单列自适应 GridItem，由 LazyVGrid 根据容器宽度决定每行放几个封面。
-    private var columns: [GridItem] { // 计算属性：交给 LazyVGrid 决定列数
-        [GridItem(.adaptive(minimum: 104, maximum: 150), spacing: 16, alignment: .top)] // 自适应列：单元最小 104、最大 150，列距 16，顶部对齐
-    } // 结束 columns 计算属性
+    /// 依据容器实测宽度计算列宽与列定义。用 GeometryReader 在视图主体测宽（可靠，非 background），
+    /// 固定列宽 + 明确列间距，配合 cell 内 frame 锁定宽度，保证封面间距与书名省略都正确。
+    /// - Parameter width: 容器实测宽度
+    /// - Returns: (列定义, 列宽)
+    private func shelfLayout(for width: CGFloat) -> (columns: [GridItem], cellWidth: CGFloat) { // 按宽度计算布局
+        let spacing: CGFloat = 22 // 列间距 22pt，封面之间留出清晰空隙
+        let count = width >= 820 ? 5 : (width >= 560 ? 4 : 3) // 列数随机型变化
+        let cellWidth = max(80, (width - spacing * CGFloat(count - 1)) / CGFloat(count)) // 扣除列距后均分列宽
+        let columns = Array(repeating: GridItem(.fixed(cellWidth), spacing: spacing, alignment: .top), count: count) // 固定列宽
+        return (columns, cellWidth) // 返回列定义与列宽
+    } // 结束 shelfLayout(for:)
 
     /// 视图主体：导航容器 + 纸色背景 + 可滚动内容，并挂载导入/错误/删除等修饰符。
     var body: some View { // View 协议要求的入口属性
@@ -189,37 +195,41 @@ struct LibraryView: View { // 声明书架首页视图，遵循 View 协议
     /// 书架区块：标题行与封面网格。
     /// 网格数据来自 library.books；每格 NavigationLink(value:) 进入 ReaderView，
     /// contextMenu 中的删除只设置 pendingDelete，由 body 内的 alert 二次确认。
-    private var shelfSection: some View { // 计算属性：依赖 library.books 与 columns
-        VStack(alignment: .leading, spacing: 12) { // 纵向栈：左对齐，区块间距 12
-            HStack { // 标题行：标题、数量徽标与弹性空白
-                Text("我的书架") // 区块标题
-                    .font(.system(size: 17, weight: .semibold, design: .serif)) // 17 号半粗衬线
-                    .foregroundStyle(AppTheme.ink) // 墨色
-                Text("\(library.books.count)") // 书籍数量文本
-                    .font(.system(size: 11, weight: .semibold)) // 11 号半粗体
-                    .foregroundStyle(AppTheme.ink.opacity(0.5)) // 半透明墨色
-                    .padding(.horizontal, 7) // 水平内边距 7，形成徽标外形
-                    .padding(.vertical, 2) // 垂直内边距 2
-                    .background(Capsule().fill(AppTheme.ink.opacity(0.07))) // 极淡墨色胶囊底
-                Spacer() // 弹性空白：让标题组靠左
-            } // 结束 标题行 HStack
+    private var shelfSection: some View { // 计算属性：依赖 library.books
+        GeometryReader { geo in // 在视图主体直接测量宽度（可靠），而非 background+PreferenceKey
+            let layout = shelfLayout(for: geo.size.width) // 依据实测宽度算列宽与列数
+            VStack(alignment: .leading, spacing: 12) { // 纵向栈：左对齐，区块间距 12
+                HStack { // 标题行：标题、数量徽标与弹性空白
+                    Text("我的书架") // 区块标题
+                        .font(.system(size: 17, weight: .semibold, design: .serif)) // 17 号半粗衬线
+                        .foregroundStyle(AppTheme.ink) // 墨色
+                    Text("\(library.books.count)") // 书籍数量文本
+                        .font(.system(size: 11, weight: .semibold)) // 11 号半粗体
+                        .foregroundStyle(AppTheme.ink.opacity(0.5)) // 半透明墨色
+                        .padding(.horizontal, 7) // 水平内边距 7，形成徽标外形
+                        .padding(.vertical, 2) // 垂直内边距 2
+                        .background(Capsule().fill(AppTheme.ink.opacity(0.07))) // 极淡墨色胶囊底
+                    Spacer() // 弹性空白：让标题组靠左
+                } // 结束 标题行 HStack
 
-            LazyVGrid(columns: columns, alignment: .leading, spacing: 20) { // 懒加载网格：按 columns 自适应列数，行距 20
-                ForEach(library.books) { book in // 遍历书库，Book 需实现 Identifiable
-                    NavigationLink(value: book) { // 每格都是导航链接，点击进入 ReaderView
-                        BookShelfCell(book: book) // 书架单元格：封面、书名、格式与进度
-                    } // 结束 NavigationLink 内容闭包
-                    .buttonStyle(.plain) // 去掉默认按钮样式
-                    .contextMenu { // 长按菜单
-                        Button(role: .destructive) { // 破坏性「删除」按钮：此处不做真正删除
-                            pendingDelete = book // 仅记录待删除书籍，交给 alert 二次确认
-                        } label: { // 结束 action 闭包，开始菜单项外观闭包
-                            Label("删除", systemImage: "trash") // 文字与垃圾桶图标
-                        } // 结束 label 外观闭包
-                    } // 结束 contextMenu
-                } // 结束 ForEach
-            } // 结束 LazyVGrid
-        } // 结束 shelfSection 的 VStack
+                LazyVGrid(columns: layout.columns, alignment: .leading, spacing: 30) { // 固定列宽网格，行距 30pt
+                    ForEach(library.books) { book in // 遍历书库，Book 需实现 Identifiable
+                        NavigationLink(value: book) { // 每格都是导航链接，点击进入 ReaderView
+                            BookShelfCell(book: book, coverWidth: layout.cellWidth) // 封面宽度锁定为实测列宽
+                        } // 结束 NavigationLink 内容闭包
+                        .buttonStyle(.plain) // 去掉默认按钮样式
+                        .contextMenu { // 长按菜单
+                            Button(role: .destructive) { // 破坏性「删除」按钮：此处不做真正删除
+                                pendingDelete = book // 仅记录待删除书籍，交给 alert 二次确认
+                            } label: { // 结束 action 闭包，开始菜单项外观闭包
+                                Label("删除", systemImage: "trash") // 文字与垃圾桶图标
+                            } // 结束 label 外观闭包
+                        } // 结束 contextMenu
+                    } // 结束 ForEach
+                } // 结束 LazyVGrid
+            } // 结束 shelfSection 的 VStack
+        } // 结束 GeometryReader
+        .fixedSize(horizontal: false, vertical: true) // 高度按内容自适应，避免 GeometryReader 占满 ScrollView
     } // 结束 shelfSection 计算属性
 
     // MARK: 空状态
@@ -321,17 +331,19 @@ struct LibraryView: View { // 声明书架首页视图，遵循 View 协议
 private struct BookShelfCell: View { // 私有视图：仅在本文件内使用
     /// 要展示的书籍，由 ForEach 逐项传入
     let book: Book // 不可变入参：单元格只读
+    /// 封面宽度：由外层按实测列宽传入，锁定封面与文字宽度
+    let coverWidth: CGFloat // 不可变入参：锁定宽度
 
-    /// 单元格主体：竖向排布封面、书名与底部元信息行。
+    /// 单元格主体：封面、书名与元信息行均锁定为传入宽度，长书名自动省略。
     var body: some View { // View 协议入口
         VStack(alignment: .leading, spacing: 7) { // 纵向栈：左对齐，间距 7
             BookCoverView(book: book) // 标准封面：含格式标签与底部进度条
-                .frame(maxWidth: .infinity) // 撑满网格单元宽度
-                .aspectRatio(0.7, contentMode: .fit) // 固定 0.7 宽高比，保持书封视觉比例
+                .frame(width: coverWidth, height: coverWidth / 0.7) // 封面宽度锁定，0.7 宽高比
             Text(book.title) // 书名
                 .font(.system(size: 13, weight: .medium)) // 13 号中等字重
                 .foregroundStyle(AppTheme.ink) // 墨色
-                .lineLimit(1) // 单行省略，保持网格整齐
+                .lineLimit(1) // 单行省略
+                .frame(width: coverWidth, alignment: .leading) // 书名宽度锁定，超出省略
             HStack(spacing: 4) { // 元信息行：格式标签与进度
                 Text(book.format.displayName) // 格式短名，如 TXT / EPUB
                     .font(.system(size: 9, weight: .semibold)) // 9 号半粗体
@@ -347,7 +359,9 @@ private struct BookShelfCell: View { // 私有视图：仅在本文件内使用
                     .foregroundStyle(AppTheme.ink.opacity(0.45)) // 淡墨色
                 Spacer(minLength: 0) // 弹性空白：让标签靠左
             } // 结束 元信息 HStack
+            .frame(width: coverWidth, alignment: .leading) // 元信息行宽度锁定
         } // 结束 BookShelfCell 的 VStack
+        .frame(width: coverWidth, alignment: .leading) // 整格宽度锁定
     } // 结束 body
 } // 结束 BookShelfCell
 
@@ -426,6 +440,6 @@ struct BookCoverView: View { // 公开视图：可被其他文件复用
             } // 结束 进度条条件分支
         } // 结束 封面 ZStack
         .clipShape(RoundedRectangle(cornerRadius: compact ? 10 : 12)) // 按模式裁圆角：紧凑 10、标准 12
-        .shadow(color: .black.opacity(0.16), radius: compact ? 5 : 8, x: 0, y: 4) // 柔和投影，模拟纸张厚度
+        .shadow(color: .black.opacity(0.12), radius: compact ? 3 : 4, x: 0, y: 2) // 柔和投影（收敛半径避免外扩吃掉列间距），模拟纸张厚度
     } // 结束 body
 } // 结束 BookCoverView

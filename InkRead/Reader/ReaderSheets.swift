@@ -47,6 +47,13 @@ struct ReaderSettingsSheet: View {   // 声明设置面板视图
     /// 当前设置快照，便于各分区直接读取
     private var settings: ReaderSettings { store.settings }   // 透传 store 中的设置对象
 
+    // MARK: 排版滑杆离散档位
+    // 字号 / 行距 / 段距 / 页边距均限定为 5 档（含各自默认值），拖动吸附到最近档、点击端点跳一档，避免连续微调。
+    private static let fontSizeNodes: [Double] = [15, 17, 19, 22, 26]               // 字号（pt），默认 19
+    private static let lineSpacingNodes: [Double] = [1.25, 1.45, 1.65, 1.85, 2.1]   // 行距倍数，默认 1.45
+    private static let paragraphSpacingNodes: [Double] = [0, 0.18, 0.35, 0.6, 1.0]  // 段距倍数，默认 0.35
+    private static let marginNodes: [Double] = [8, 15, 22, 30, 40]                  // 单侧页边距（pt），默认 22（显示时反转为文字宽度方向）
+
     /// 视图主体：导航栈 + 可滚动分区列表
     var body: some View {   // 设置面板视图树入口
         NavigationStack {   // 用导航栈提供标题与「完成」按钮
@@ -239,45 +246,41 @@ struct ReaderSettingsSheet: View {   // 声明设置面板视图
                 )   // 结束背景
                 .foregroundStyle(settings.theme.text.color)   // 预览文字使用当前主题正文色
 
-            sliderRow(   // 字号滑杆行
-                title: "字号",   // 行标题
-                leading: "A-",   // 左端提示：更小
-                trailing: "A+",   // 右端提示：更大
-                value: binding(get: { settings.typography.fontSize }, set: { store.settings.typography.fontSize = $0 }),   // 双向绑定字号
-                range: 14...32,   // 取值范围 14–32
-                step: 1,   // 步长 1pt
-                display: "\(Int(settings.typography.fontSize)) pt"   // 右侧数值展示
-            )   // 结束字号滑杆行
+            sliderRow(   // 字号滑杆行（5 档，点击 A- / A+ 跳档）
+                title: "字号", leading: "A-", trailing: "A+",
+                value: snapped(binding(get: { settings.typography.fontSize }, set: { store.settings.typography.fontSize = $0 }), nodes: Self.fontSizeNodes),
+                range: Self.fontSizeNodes.first!...Self.fontSizeNodes.last!,
+                display: "\(Int(settings.typography.fontSize)) pt",
+                onLeading: { self.nudge(Self.fontSizeNodes, self.binding(get: { self.settings.typography.fontSize }, set: { self.store.settings.typography.fontSize = $0 }), -1) },
+                onTrailing: { self.nudge(Self.fontSizeNodes, self.binding(get: { self.settings.typography.fontSize }, set: { self.store.settings.typography.fontSize = $0 }), 1) }
+            )
 
-            sliderRow(   // 行间距滑杆行
-                title: "行间距",   // 行标题
-                leading: "紧",   // 左端提示：更紧
-                trailing: "松",   // 右端提示：更松
-                value: binding(get: { settings.typography.lineSpacing }, set: { store.settings.typography.lineSpacing = $0 }),   // 双向绑定行距倍数
-                range: 1.0...2.4,   // 取值范围 1.0–2.4 倍
-                step: 0.05,   // 步长 0.05
-                display: String(format: "%.2fx", settings.typography.lineSpacing)   // 以 x 倍数格式展示
-            )   // 结束行间距滑杆行
+            sliderRow(   // 行间距滑杆行（5 档，点击 紧 / 松 跳档）
+                title: "行间距", leading: "紧", trailing: "松",
+                value: snapped(binding(get: { settings.typography.lineSpacing }, set: { store.settings.typography.lineSpacing = $0 }), nodes: Self.lineSpacingNodes),
+                range: Self.lineSpacingNodes.first!...Self.lineSpacingNodes.last!,
+                display: String(format: "%.2fx", settings.typography.lineSpacing),
+                onLeading: { self.nudge(Self.lineSpacingNodes, self.binding(get: { self.settings.typography.lineSpacing }, set: { self.store.settings.typography.lineSpacing = $0 }), -1) },
+                onTrailing: { self.nudge(Self.lineSpacingNodes, self.binding(get: { self.settings.typography.lineSpacing }, set: { self.store.settings.typography.lineSpacing = $0 }), 1) }
+            )
 
-            sliderRow(   // 段间距滑杆行
-                title: "段间距",   // 行标题
-                leading: "小",   // 左端提示：段距更小
-                trailing: "大",   // 右端提示：段距更大
-                value: binding(get: { settings.typography.paragraphSpacing }, set: { store.settings.typography.paragraphSpacing = $0 }),   // 双向绑定段距倍数
-                range: 0...1.2,   // 取值范围 0–1.2 倍
-                step: 0.05,   // 步长 0.05
-                display: String(format: "%.2fx", settings.typography.paragraphSpacing)   // 以 x 倍数格式展示
-            )   // 结束段间距滑杆行
+            sliderRow(   // 段间距滑杆行（5 档，点击 小 / 大 跳档）
+                title: "段间距", leading: "小", trailing: "大",
+                value: snapped(binding(get: { settings.typography.paragraphSpacing }, set: { store.settings.typography.paragraphSpacing = $0 }), nodes: Self.paragraphSpacingNodes),
+                range: Self.paragraphSpacingNodes.first!...Self.paragraphSpacingNodes.last!,
+                display: String(format: "%.2fx", settings.typography.paragraphSpacing),
+                onLeading: { self.nudge(Self.paragraphSpacingNodes, self.binding(get: { self.settings.typography.paragraphSpacing }, set: { self.store.settings.typography.paragraphSpacing = $0 }), -1) },
+                onTrailing: { self.nudge(Self.paragraphSpacingNodes, self.binding(get: { self.settings.typography.paragraphSpacing }, set: { self.store.settings.typography.paragraphSpacing = $0 }), 1) }
+            )
 
-            sliderRow(   // 页边距（文字宽度）滑杆行
-                title: "页边距（文字宽度）",   // 行标题
-                leading: "宽",   // 左端提示：边距更大、正文更窄
-                trailing: "窄",   // 右端提示：边距更小、正文更宽
-                value: binding(get: { settings.typography.horizontalMargin }, set: { store.settings.typography.horizontalMargin = $0 }),   // 双向绑定水平边距
-                range: 8...56,   // 取值范围 8–56
-                step: 1,   // 步长 1pt
-                display: "\(Int(settings.typography.horizontalMargin)) pt"   // 右侧数值展示
-            )   // 结束页边距滑杆行
+            sliderRow(   // 页边距（文字宽度）滑杆行：滑杆左→右文字由窄变宽，内部 margin 反向映射并吸附到 5 档
+                title: "页边距（文字宽度）", leading: "窄", trailing: "宽",
+                value: reversedSnappedMargin(),
+                range: Self.marginNodes.first!...Self.marginNodes.last!,
+                display: "\(Int(settings.typography.horizontalMargin)) pt",
+                onLeading: { self.nudge(Self.marginNodes, self.binding(get: { self.settings.typography.horizontalMargin }, set: { self.store.settings.typography.horizontalMargin = $0 }), 1) },
+                onTrailing: { self.nudge(Self.marginNodes, self.binding(get: { self.settings.typography.horizontalMargin }, set: { self.store.settings.typography.horizontalMargin = $0 }), -1) }
+            )
 
             Toggle("首行缩进", isOn: binding(   // 首行缩进开关
                 get: { settings.typography.indentFirstLine },   // 读取当前开关值
@@ -389,14 +392,17 @@ struct ReaderSettingsSheet: View {   // 声明设置面板视图
     ///   - title: 行标题
     ///   - leading: 滑杆左端（最小值侧）提示文字
     ///   - trailing: 滑杆右端（最大值侧）提示文字
-    ///   - value: 与设置字段双向绑定的值
+    ///   - value: 与设置字段双向绑定的值（绑定内已做离散吸附）
     ///   - range: 允许的取值范围
-    ///   - step: 拖动步长
     ///   - display: 右上角展示的当前值文本
+    ///   - onLeading: 点击左端点的动作（传 nil 则端点仅作纯文本展示）
+    ///   - onTrailing: 点击右端点的动作（传 nil 则端点仅作纯文本展示）
     /// - Returns: 两行布局的滑杆组件
-    private func sliderRow(title: String, leading: String, trailing: String,   // 方法签名：标题与左右提示
-                           value: Binding<Double>, range: ClosedRange<Double>, step: Double,   // 方法签名：绑定值、范围与步长
-                           display: String) -> some View {   // 方法签名：展示文本，返回视图
+    private func sliderRow(title: String, leading: String, trailing: String,   // 方法签名：标题与左右端点提示
+                           value: Binding<Double>, range: ClosedRange<Double>,   // 方法签名：绑定值与取值范围
+                           display: String,   // 方法签名：右上角展示文本
+                           onLeading: (() -> Void)? = nil,   // 可选：点击左端点的动作（跳小一档）
+                           onTrailing: (() -> Void)? = nil) -> some View {   // 可选：点击右端点的动作（跳大一档）
         VStack(spacing: 4) {   // 两行内容纵向排列，间距 4
             HStack {   // 第一行：标题与当前值
                 Text(title)   // 行标题
@@ -406,19 +412,32 @@ struct ReaderSettingsSheet: View {   // 声明设置面板视图
                     .font(.system(size: 12))   // 字号 12
                     .foregroundStyle(.secondary)   // 次要色
             }   // 结束标题行 HStack
-            HStack(spacing: 8) {   // 第二行：左提示 + 滑杆 + 右提示
-                Text(leading)   // 左端提示文字
-                    .font(.system(size: 11))   // 字号 11
-                    .foregroundStyle(.secondary)   // 次要色
-                    .frame(width: 18)   // 固定宽度 18，保证对齐
-                Slider(value: value, in: range, step: step)   // 实际滑杆控件
-                Text(trailing)   // 右端提示文字
-                    .font(.system(size: 11))   // 字号 11
-                    .foregroundStyle(.secondary)   // 次要色
-                    .frame(width: 18)   // 固定宽度 18，保证对齐
+            HStack(spacing: 8) {   // 第二行：左端点 + 滑杆 + 右端点
+                endpointLabel(leading, action: onLeading)   // 左端点：有动作则为按钮，否则纯文本
+                Slider(value: value, in: range)   // 实际滑杆控件（离散吸附由 binding 负责，不设 step）
+                endpointLabel(trailing, action: onTrailing)   // 右端点：有动作则为按钮，否则纯文本
             }   // 结束滑杆行 HStack
         }   // 结束滑杆行 VStack
     }   // 结束 sliderRow
+
+    /// 滑杆端点标签：提供动作时渲染为可点击按钮，否则为纯文本；统一宽度 18 保证各行对齐
+    private func endpointLabel(_ text: String, action: (() -> Void)?) -> some View {   // 端点标签构造
+        Group {   // 用 Group 统一分支返回类型
+            if let action {   // 提供了点击动作 → 渲染为按钮
+                Button(action: action) {   // 点击触发跳档
+                    Text(text)   // 端点文字
+                        .font(.system(size: 11))   // 字号 11
+                        .foregroundStyle(.secondary)   // 次要色
+                }   // 结束 Button
+                .buttonStyle(.plain)   // 无样式按钮，保持文本外观与点击区域
+            } else {   // 无动作 → 纯文本
+                Text(text)   // 端点文字
+                    .font(.system(size: 11))   // 字号 11
+                    .foregroundStyle(.secondary)   // 次要色
+            }   // 结束分支
+        }   // 结束 Group
+        .frame(width: 18)   // 固定宽度 18，保证各行对齐
+    }   // 结束 endpointLabel
 
     /// 手写 Binding 的便捷工厂
     /// - Parameters:
@@ -428,6 +447,40 @@ struct ReaderSettingsSheet: View {   // 声明设置面板视图
     private func binding<T>(get: @escaping () -> T, set: @escaping (T) -> Void) -> Binding<T> {   // 泛型绑定构造方法
         Binding(get: get, set: set)   // 直接返回自定义 Binding
     }   // 结束 binding
+
+    /// 离散吸附绑定：写入时把值吸附到 nodes 中最近的节点，实现 5 档滑杆
+    private func snapped(_ base: Binding<Double>, nodes: [Double]) -> Binding<Double> {   // 吸附绑定构造
+        Binding(   // 构造新绑定
+            get: { base.wrappedValue },   // 读取直接透传
+            set: { newValue in   // 写入时吸附到最近节点
+                let target = nodes.min { abs($0 - newValue) < abs($1 - newValue) } ?? newValue   // 取距离最近的节点
+                base.wrappedValue = target   // 写回吸附后的值
+            }   // 结束 set
+        )   // 结束 Binding
+    }   // 结束 snapped
+
+    /// 点击端点跳档：按 delta（-1 左档 / +1 右档）在 nodes 中移动并写回
+    private func nudge(_ nodes: [Double], _ base: Binding<Double>, _ delta: Int) {   // 跳档方法
+        let current = base.wrappedValue   // 当前值
+        if let index = nodes.enumerated().min(by: { abs($0.element - current) < abs($1.element - current) })?.offset {   // 找到最近节点索引
+            let target = max(0, min(nodes.count - 1, index + delta))   // 钳制到合法范围
+            base.wrappedValue = nodes[target]   // 写回目标节点值
+        }   // 结束 if
+    }   // 结束 nudge
+
+    /// 页边距滑杆的反转 + 吸附绑定：滑杆左→右对应文字由窄变宽（margin 由大变小）
+    private func reversedSnappedMargin() -> Binding<Double> {   // 反转绑定构造
+        let nodes = Self.marginNodes   // margin 离散节点
+        let lo = nodes.first!, hi = nodes.last!   // 取值上下界
+        return Binding(   // 构造绑定
+            get: { lo + hi - self.settings.typography.horizontalMargin },   // 显示值 = 上下界和 - margin（反转方向）
+            set: { displayValue in   // 写入：先反转回 margin 再吸附
+                let margin = lo + hi - displayValue   // 反转回 margin
+                let snapped = nodes.min { abs($0 - margin) < abs($1 - margin) } ?? margin   // 吸附到最近节点
+                self.store.settings.typography.horizontalMargin = snapped   // 写回
+            }   // 结束 set
+        )   // 结束 Binding
+    }   // 结束 reversedSnappedMargin
 
     /// 亮度滑杆的绑定
     /// - 读取：跟随系统时返回 UIScreen 实际亮度，否则返回设置值

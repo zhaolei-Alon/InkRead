@@ -28,15 +28,12 @@ final class LibraryStore: ObservableObject { // 可观察对象：books 变更�
     private var pendingPersist: DispatchWorkItem? // 保存未执行的落盘工作项，便于取消并重新排期
 
     /// UserDefaults 键：标记内置示例书是否已植入，确保只生成一次
-    private let seedKey = "inkread.didSeedSamples.v1" // 版本化键名，避免与旧版本冲突
+    private let seedKey = "inkread.didSeedSamples.v3" // 版本化键名：v3 新增 5 本示例书（v2 用户升级后自动补种新增项）
 
-    /// 初始化：读取书库 → 首次植入示例书 → 导入 Documents 下的外部书籍
+    /// 初始化：读取书库 → 按版本补种示例书 → 导入 Documents 下的外部书籍
     init() { // 由 InkReadApp 在启动时构造一次
         loadLibrary() // 从 library.json 恢复已有书籍列表
-        if books.isEmpty && !UserDefaults.standard.bool(forKey: seedKey) { // 书库为空且从未植入过示例书时
-            UserDefaults.standard.set(true, forKey: seedKey) // 先置位标记，保证示例书只生成一次
-            seedSampleBooks() // 从 App Bundle 导入内置示例书
-        } // 结束 示例书植入条件块
+        seedSampleBooksIfNeeded() // 按版本标记补种缺失的示例书（升级用户也能拿到新增示例书）
         importDroppedDocuments() // 扫描 Documents 目录，导入用户经「文件」App 放入的书籍
     } // 结束 init()
 
@@ -239,22 +236,40 @@ final class LibraryStore: ObservableObject { // 可观察对象：books 变更�
         } // 结束 遍历 Documents 文件循环
     } // 结束 importDroppedDocuments()
 
-    /// 首次启动时从 App Bundle 导入内置示例书
-    private func seedSampleBooks() { // 由 init() 在书库为空且未植入时调用
-        let samples: [(String, String)] = [ // 示例书资源名与扩展名清单
-            ("Sample_StarSea", "txt"), // 中文示例：TXT 正文《星海拾遗》
-            ("Sample_Lantern", "epub") // 英文示例：EPUB 电子书
-        ] // 结束 示例书清单数组
-        for (name, ext) in samples { // 逐个处理示例资源
-            guard let url = Bundle.main.url(forResource: name, withExtension: ext) else { continue } // 在 Bundle 中定位资源，缺失则跳过
+    /// 按版本标记决定是否补种示例书：仅当当前 seedKey 版本尚未处理过时执行一次增量补种。
+    /// 采用「按 sourceFileName 去重」而非「书库为空」作为条件，使得：
+    ///   · 全新安装：种入全部示例书
+    ///   · 老版本升级：只补种清单中缺失的那些，不动已存在的书与用户自己的书
+    ///   · 用户后续删除示例书：不会在升级后再次凭空出现（因版本已标记完成）
+    private func seedSampleBooksIfNeeded() { // 由 init() 调用
+        guard !UserDefaults.standard.bool(forKey: seedKey) else { return } // 当前版本已补种过则直接返回
+        seedSampleBooks() // 执行增量补种（内部按来源文件名去重）
+        UserDefaults.standard.set(true, forKey: seedKey) // 完成后置位，保证该版本只补种一次
+    } // 结束 seedSampleBooksIfNeeded()
+
+    /// 从 App Bundle 增量补种内置示例书：书库中已存在同名来源文件的跳过，避免重复入库
+    private func seedSampleBooks() { // 由 seedSampleBooksIfNeeded() 调用
+        let samples: [(name: String, ext: String, title: String, author: String)] = [ // 示例书清单：资源名、扩展名、展示书名、作者
+            ("Sample_StarSea", "txt", "星海拾遗", "林知远"), // 中文示例：TXT 正文
+            ("Sample_MountainWind", "txt", "山风信", "苏野"), // 中文示例：短书名 TXT，测试标题截断
+            ("Sample_WhaleSong", "md", "鲸歌旧录", "沈屿白"), // 中文示例：Markdown（按 # 标题切章）
+            ("Sample_OldTown", "rtf", "老城旧事", "陈墨"), // 中文示例：RTF 富文本
+            ("Sample_RobotDream", "html", "Robot Dreams of Electric Shepherds", "Ada Vance"), // 英文示例：HTML（长书名，测试截断）
+            ("Sample_Lantern", "epub", "The Lantern Keeper", "Arthur Vale"), // 英文示例：EPUB 电子书
+            ("Sample_RainCity", "txt", "雨落姑苏", "顾长明"), // 中文示例：TXT 三章，较长书名
+            ("Sample_Snow", "txt", "雪", "白露"), // 中文示例：极短书名，测试截断
+            ("Sample_Clock", "md", "钟楼的第四声", "陆时"), // 中文示例：Markdown 四章
+            ("Sample_Lighthouse", "html", "The Lighthouse at the Edge of Memory", "Eleanor Reed"), // 英文示例：HTML 三章，超长书名测试截断
+            ("Sample_Archive", "txt", "The Missing Hour of the City Archive", "Julian Vance") // 英文示例：TXT 四章，超长书名
+        ] // 结束 示例书清单数组：覆盖全部支持格式、中英文、长短书名，便于测试多本书、多样本书架样式
+        for sample in samples { // 逐个处理示例资源
+            let sourceName = "\(sample.name).\(sample.ext)" // 该示例资源的原始文件名，用作去重依据
+            if books.contains(where: { $0.sourceFileName == sourceName }) { continue } // 书库已有同名来源书则跳过，防止升级/重装重复种入
+            guard let url = Bundle.main.url(forResource: sample.name, withExtension: sample.ext) else { continue } // 在 Bundle 中定位资源，缺失则跳过
             guard var draft = try? BookImporter.load(url: url) else { continue } // 解析为书稿，失败则跳过
             if draft.chapters.isEmpty { continue } // 章节为空的残缺资源不导入
-            if name.contains("StarSea") { // 中文示例书：覆写标题与作者
-                draft.title = "星海拾遗" // 设置中文书名
-                draft.author = "林知远" // 设置中文作者
-            } else { // 其他示例书仅覆写作者
-                draft.author = "Arthur Vale" // 设置英文作者
-            } // 结束 示例书元数据覆写分支
+            draft.title = sample.title // 覆写展示书名（避免取到文件名或残缺标题）
+            draft.author = sample.author // 覆写作者
             _ = try? add(draft) // 静默入库，失败不影响应用启动
         } // 结束 遍历示例书循环
     } // 结束 seedSampleBooks()
